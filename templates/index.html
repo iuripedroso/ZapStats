@@ -440,37 +440,19 @@
   .streak-date span { color: var(--accent); }
 
   /* Sticker card */
-  .sticker-compare {
-    display: flex;
-    align-items: flex-end;
-    gap: 20px;
-  }
-
-  .sticker-person {
-    flex: 1;
-    text-align: center;
-  }
-
-  .sticker-emoji {
-    font-size: 40px;
-    display: block;
-    margin-bottom: 8px;
-  }
-
-  .sticker-count {
-    font-family: 'Syne', sans-serif;
-    font-size: 1.8rem;
-    font-weight: 800;
-  }
-
-  .sticker-name {
-    font-size: 11px;
-    color: var(--text-muted);
-    margin-top: 4px;
-    word-break: break-word;
-  }
-
-  .sticker-vs { color: var(--text-muted); font-size: 13px; align-self: center; }
+  .sticker-section { display: flex; flex-direction: column; gap: 14px; }
+  .sticker-person-name { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; flex: 1; }
+  .sticker-total { font-size: 11px; color: var(--text-muted); }
+  .sticker-total span { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 1.3rem; color: var(--text); margin-right: 4px; }
+  .sticker-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+  .sticker-item { display: flex; flex-direction: column; align-items: center; gap: 5px; }
+  .sticker-img { width: 56px; height: 56px; border-radius: 10px; background: var(--surface2); border: 1px solid var(--border); object-fit: contain; display: block; }
+  .sticker-placeholder { width: 56px; height: 56px; border-radius: 10px; background: var(--surface2); border: 1px dashed var(--border); display: flex; align-items: center; justify-content: center; font-size: 24px; }
+  .sticker-item-count { font-size: 11px; color: var(--text-muted); }
+  .sticker-item-count strong { color: var(--text); font-family: 'Syne', sans-serif; }
+  .sticker-divider { border: none; border-top: 1px solid var(--border); }
+  .sticker-no-media { font-size: 11px; color: var(--text-muted); font-style: italic; }
+  .sticker-header { display: flex; align-items: center; gap: 10px; margin-bottom: 6px; }
 
   /* Timeline */
   .timeline-stats {
@@ -592,21 +574,9 @@
       </div>
 
       <!-- Stickers -->
-      <div class="card">
-        <div class="card-label neutral">Figurinhas enviadas</div>
-        <div class="sticker-compare">
-          <div class="sticker-person">
-            <span class="sticker-emoji">🎭</span>
-            <div class="sticker-count" id="sticker-p1">0</div>
-            <div class="sticker-name" id="sticker-name-p1">—</div>
-          </div>
-          <div class="sticker-vs">vs</div>
-          <div class="sticker-person">
-            <span class="sticker-emoji">🎪</span>
-            <div class="sticker-count" id="sticker-p2">0</div>
-            <div class="sticker-name" id="sticker-name-p2">—</div>
-          </div>
-        </div>
+      <div class="card card-full">
+        <div class="card-label neutral">Figurinhas mais usadas</div>
+        <div class="sticker-section" id="sticker-section"></div>
       </div>
 
       <!-- Streak -->
@@ -713,6 +683,48 @@ function makeWordRows(words, color) {
   `).join('');
 }
 
+function makeStickerItems(stickers, hasMedia) {
+  if (!stickers || !stickers.length) {
+    return '<span class="sticker-no-media">Nenhuma figurinha encontrada</span>';
+  }
+  return '<div class="sticker-row">' + stickers.map(s => {
+    const img = s.img
+      ? `<img class="sticker-img" src="${s.img}" alt="figurinha">`
+      : `<div class="sticker-placeholder">🎭</div>`;
+    return `<div class="sticker-item">
+      ${img}
+      <span class="sticker-item-count"><strong>${s.count}x</strong></span>
+    </div>`;
+  }).join('') + (hasMedia && stickers.length === 0 ? '<span class="sticker-no-media">Sem figurinhas</span>' : '') + '</div>';
+}
+
+function renderStickerSection(d) {
+  const p1 = d.person1, p2 = d.person2;
+  const hasMedia = d.has_media;
+  const noMediaNote = !hasMedia
+    ? '<p class="sticker-no-media" style="margin-top:8px">💡 Para ver as imagens das figurinhas, exporte a conversa <strong>com mídia</strong>.</p>'
+    : '';
+
+  document.getElementById('sticker-section').innerHTML = `
+    <div>
+      <div class="sticker-header">
+        <span class="sticker-person-name" style="color:var(--p1)">${p1.name.split(' ')[0]}</span>
+        <span class="sticker-total"><span>${p1.stickers}</span> figurinhas</span>
+      </div>
+      ${makeStickerItems(p1.top_stickers, hasMedia)}
+    </div>
+    <hr class="sticker-divider">
+    <div>
+      <div class="sticker-header">
+        <span class="sticker-person-name" style="color:var(--p2)">${p2.name.split(' ')[0]}</span>
+        <span class="sticker-total"><span>${p2.stickers}</span> figurinhas</span>
+      </div>
+      ${makeStickerItems(p2.top_stickers, hasMedia)}
+    </div>
+    ${noMediaNote}
+  `;
+}
+
 function renderResults(d) {
   const p1 = d.person1, p2 = d.person2;
   const total = p1.msgs + p2.msgs;
@@ -740,10 +752,7 @@ function renderResults(d) {
   document.getElementById('words-p2').innerHTML = makeWordRows(p2.top_word, 'var(--p2)');
 
   // Stickers
-  document.getElementById('sticker-p1').textContent = p1.stickers;
-  document.getElementById('sticker-p2').textContent = p2.stickers;
-  document.getElementById('sticker-name-p1').textContent = p1.name.split(' ')[0];
-  document.getElementById('sticker-name-p2').textContent = p2.name.split(' ')[0];
+  renderStickerSection(d);
 
   // Streak
   if (d.longest_streak) {
