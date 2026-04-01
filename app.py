@@ -3,13 +3,16 @@ import zipfile
 import re
 import io
 import base64
-from collections import Counter, defaultdict
+from collections import Counter
 from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
 
-# All known WhatsApp export formats
+# Stored messages in memory for word search (keyed by session via a simple global)
+# For single-user local use this is fine
+_last_messages = {'p1': None, 'p2': None, 'msgs': []}
+
 PATTERNS = [
     (r'\[(\d{1,2}/\d{1,2}/\d{2,4}),\s*(\d{1,2}:\d{2}:\d{2})\]\s*([^:]+?):\s*(.*)', '%d/%m/%Y %H:%M:%S'),
     (r'\[(\d{1,2}/\d{1,2}/\d{2,4}),\s*(\d{1,2}:\d{2})\]\s*([^:]+?):\s*(.*)', '%d/%m/%Y %H:%M'),
@@ -43,7 +46,6 @@ def parse_whatsapp_chat(text):
         line = line.strip()
         if not line:
             continue
-
         hit = False
         check_patterns = [matched_pattern] if matched_pattern else PATTERNS
         if matched_pattern:
@@ -78,10 +80,15 @@ def is_media(content):
         'áudio omitido', 'audio omitted', '<áudio', '<audio',
         'arquivo omitido', 'file omitted', '<arquivo', '<file',
         'mídia omitida', 'media omitted',
-        '.webp', '.opus', '.mp4', '.jpg', '.jpeg', '.png', '.gif',
+        'arquivo anexado', 'file attached',
     ]
     cl = content.lower()
-    return any(t in cl for t in terms)
+    if any(t in cl for t in terms):
+        return True
+    # Catch media filenames exported with media (e.g. "STK-xxx.webp (arquivo anexado)")
+    if re.search(r'\.(webp|opus|mp4|mp3|jpg|jpeg|png|gif|stk|aac|m4a|3gp|caf)\b', cl):
+        return True
+    return False
 
 def is_sticker(content):
     cl = content.lower()
@@ -89,8 +96,11 @@ def is_sticker(content):
             '<figurinha' in cl or '<sticker' in cl)
 
 def extract_sticker_filename(content):
-    """Extract the .webp filename referenced in a sticker message."""
-    # WhatsApp with media includes filename like: STK-20240101-WA0001.webp (arquivo anexado)
+    # With media export, WhatsApp puts the filename before "(arquivo anexado)" or similar
+    # Patterns: "STK-20240101-WA0001.webp (arquivo anexado)"  or just the filename
+    m = re.search(r'(STK[\w\-]+\.webp)', content, re.IGNORECASE)
+    if m:
+        return m.group(1)
     m = re.search(r'([\w\-]+\.webp)', content, re.IGNORECASE)
     return m.group(1) if m else None
 
@@ -122,8 +132,17 @@ def get_top_words(messages, sender):
             words.extend(ws)
     return Counter(words).most_common(5)
 
+def count_phrase(messages, sender, phrase):
+    """Count how many messages contain the phrase (case-insensitive)."""
+    phrase = phrase.lower().strip()
+    count = 0
+    for m in messages:
+        if m['sender'] == sender and not is_media(m['content']):
+            if phrase in m['content'].lower():
+                count += 1
+    return count
+
 def get_top_stickers(messages, sender, media_files):
-    """Return top 3 stickers with base64 image data if available."""
     sticker_counts = Counter()
     for m in messages:
         if m['sender'] == sender and is_sticker(m['content']):
@@ -136,9 +155,11 @@ def get_top_stickers(messages, sender, media_files):
 
     result = []
     for fname, count in top:
-        entry = {'count': count, 'img': None, 'name': fname if fname != '__unknown__' else None}
-        if fname != '__unknown__' and fname in media_files:
-            entry['img'] = 'data:image/webp;base64,' + base64.b64encode(media_files[fname]).decode()
+        entry = {'count': count, 'img': None}
+        if fname != '__unknown__':
+            # Try to find the file - match by name ignoring path
+            if fname in media_files:
+                entry['img'] = 'data:image/webp;base64,' + base64.b64encode(media_files[fname]).decode()
         result.append(entry)
 
     return result, total
@@ -168,6 +189,11 @@ def analyze_chat(messages, media_files):
     p2_name, p2_msgs = top2[1]
     msgs_filtered = [m for m in real if m['sender'] in [p1_name, p2_name]]
 
+    # Store for word search
+    _last_messages['p1'] = p1_name
+    _last_messages['p2'] = p2_name
+    _last_messages['msgs'] = msgs_filtered
+
     # Streaks
     dates = sorted(set(m['date'].date() for m in msgs_filtered if m['date']))
     streaks = []
@@ -183,7 +209,6 @@ def analyze_chat(messages, media_files):
     longest = max(streaks, key=lambda x: x[2]) if streaks else None
 
     has_media = len(media_files) > 0
-
     p1_top_stickers, p1_sticker_total = get_top_stickers(msgs_filtered, p1_name, media_files)
     p2_top_stickers, p2_sticker_total = get_top_stickers(msgs_filtered, p2_name, media_files)
 
@@ -213,6 +238,29 @@ def analyze_chat(messages, media_files):
 def index():
     return render_template('index.html')
 
+@app.route('/search', methods=['POST'])
+def search():
+    data = request.get_json()
+    phrase = (data or {}).get('phrase', '').strip()
+    if not phrase:
+        return jsonify({'error': 'Digite uma palavra ou frase'}), 400
+    if not _last_messages['msgs']:
+        return jsonify({'error': 'Faça upload de uma conversa primeiro'}), 400
+
+    msgs = _last_messages['msgs']
+    p1 = _last_messages['p1']
+    p2 = _last_messages['p2']
+
+    p1_count = count_phrase(msgs, p1, phrase)
+    p2_count = count_phrase(msgs, p2, phrase)
+
+    return jsonify({
+        'phrase': phrase,
+        'p1_name': p1, 'p1_count': p1_count,
+        'p2_name': p2, 'p2_count': p2_count,
+        'total': p1_count + p2_count,
+    })
+
 @app.route('/analyze', methods=['POST'])
 def analyze():
     if 'file' not in request.files:
@@ -225,7 +273,7 @@ def analyze():
     try:
         zip_data = file.read()
         content = None
-        media_files = {}  # filename -> bytes
+        media_files = {}
 
         with zipfile.ZipFile(io.BytesIO(zip_data)) as z:
             all_files = z.namelist()
@@ -233,10 +281,9 @@ def analyze():
 
             if not txt_files:
                 return jsonify({
-                    'error': f'Nenhum .txt encontrado no zip. Arquivos: {", ".join(all_files[:5])}'
+                    'error': f'Nenhum .txt encontrado. Arquivos: {", ".join(all_files[:5])}'
                 }), 400
 
-            # Read chat text
             for tf in txt_files:
                 raw = z.open(tf).read()
                 for enc in ('utf-8-sig', 'utf-8', 'latin-1', 'cp1252'):
@@ -248,13 +295,11 @@ def analyze():
                 if content:
                     break
 
-            # Read sticker .webp files (limit to 5MB each to avoid memory issues)
             for fname in all_files:
                 if fname.lower().endswith('.webp'):
                     try:
                         data = z.open(fname).read()
                         if len(data) <= 5 * 1024 * 1024:
-                            # Store by basename only
                             media_files[fname.split('/')[-1]] = data
                     except:
                         pass
@@ -281,7 +326,7 @@ def analyze():
 
 @app.errorhandler(413)
 def too_large(e):
-    return jsonify({'error': 'Arquivo muito grande. Tente exportar sem mídia ou comprima o zip.'}), 413
+    return jsonify({'error': 'Arquivo muito grande. Tente exportar sem mídia.'}), 413
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)

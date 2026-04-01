@@ -507,6 +507,108 @@
     pointer-events: none;
     z-index: 0;
   }
+
+  /* Word search card */
+  .search-box {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 16px;
+  }
+
+  .search-input {
+    flex: 1;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 14px;
+    color: var(--text);
+    font-family: 'DM Mono', monospace;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .search-input:focus { border-color: var(--accent); }
+  .search-input::placeholder { color: var(--text-muted); }
+
+  .search-btn {
+    background: var(--accent);
+    color: #000;
+    font-family: 'Syne', sans-serif;
+    font-weight: 700;
+    font-size: 13px;
+    padding: 10px 20px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    white-space: nowrap;
+  }
+
+  .search-btn:hover { filter: brightness(1.1); }
+
+  .search-results {
+    display: none;
+  }
+
+  .search-phrase {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-bottom: 12px;
+  }
+
+  .search-phrase strong { color: var(--accent); }
+
+  .search-winner {
+    font-family: 'Syne', sans-serif;
+    font-size: 1.1rem;
+    font-weight: 800;
+    margin-bottom: 14px;
+  }
+
+  .search-bars { display: flex; flex-direction: column; gap: 10px; }
+
+  .search-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .search-bar-name {
+    font-size: 12px;
+    min-width: 90px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .search-bar-track {
+    flex: 1;
+    height: 8px;
+    background: var(--surface2);
+    border-radius: 100px;
+    overflow: hidden;
+  }
+
+  .search-bar-fill {
+    height: 100%;
+    border-radius: 100px;
+    transition: width 0.8s cubic-bezier(0.4,0,0.2,1);
+    width: 0%;
+  }
+
+  .search-bar-count {
+    font-size: 12px;
+    color: var(--text-muted);
+    min-width: 28px;
+    text-align: right;
+  }
+
+  .search-zero {
+    font-size: 13px;
+    color: var(--text-muted);
+    font-style: italic;
+  }
 </style>
 </head>
 <body>
@@ -607,6 +709,17 @@
       </div>
     </div>
 
+
+      <!-- Word search -->
+      <div class="card card-full">
+        <div class="card-label neutral">Buscar palavra ou frase</div>
+        <div class="search-box">
+          <input class="search-input" id="search-input" type="text" placeholder='ex: "te amo", "saudade", "kkk"'>
+          <button class="search-btn" onclick="doSearch()">Buscar</button>
+        </div>
+        <div class="search-results" id="search-results"></div>
+      </div>
+
     <button class="reset-btn" onclick="reset()">← Analisar outra conversa</button>
   </div>
 </div>
@@ -668,6 +781,8 @@ function reset() {
   results.style.display = 'none';
   zone.style.display = 'block';
   fileInput.value = '';
+  document.getElementById('search-input').value = '';
+  document.getElementById('search-results').style.display = 'none';
 }
 
 function makeWordRows(words, color) {
@@ -778,6 +893,69 @@ function renderResults(d) {
 
   results.style.display = 'block';
 }
+
+function doSearch() {
+  const phrase = document.getElementById('search-input').value.trim();
+  if (!phrase) return;
+
+  const resultsEl = document.getElementById('search-results');
+  resultsEl.style.display = 'block';
+  resultsEl.innerHTML = '<span style="color:var(--text-muted);font-size:13px">Buscando...</span>';
+
+  fetch('/search', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({phrase})
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { resultsEl.innerHTML = `<span class="search-zero">${d.error}</span>`; return; }
+    if (d.total === 0) {
+      resultsEl.innerHTML = `<p class="search-zero">Ninguém disse "<strong>${d.phrase}</strong>" na conversa.</p>`;
+      return;
+    }
+    const max = Math.max(d.p1_count, d.p2_count);
+    const winner = d.p1_count > d.p2_count ? d.p1_name
+                 : d.p2_count > d.p1_count ? d.p2_name
+                 : 'Empate';
+    const winnerColor = d.p1_count >= d.p2_count ? 'var(--p1)' : 'var(--p2)';
+
+    resultsEl.innerHTML = `
+      <p class="search-phrase">Resultados para <strong>"${d.phrase}"</strong> — ${d.total}x no total</p>
+      <div class="search-winner" style="color:${winnerColor}">
+        ${winner === 'Empate' ? '🤝 Empate!' : `🏆 ${winner} falou mais`}
+      </div>
+      <div class="search-bars">
+        <div class="search-bar-row">
+          <span class="search-bar-name" style="color:var(--p1)">${d.p1_name.split(' ')[0]}</span>
+          <div class="search-bar-track">
+            <div class="search-bar-fill" id="sb1" style="background:var(--p1)"></div>
+          </div>
+          <span class="search-bar-count">${d.p1_count}x</span>
+        </div>
+        <div class="search-bar-row">
+          <span class="search-bar-name" style="color:var(--p2)">${d.p2_name.split(' ')[0]}</span>
+          <div class="search-bar-track">
+            <div class="search-bar-fill" id="sb2" style="background:var(--p2)"></div>
+          </div>
+          <span class="search-bar-count">${d.p2_count}x</span>
+        </div>
+      </div>
+    `;
+    setTimeout(() => {
+      document.getElementById('sb1').style.width = (max > 0 ? (d.p1_count/max*100) : 0) + '%';
+      document.getElementById('sb2').style.width = (max > 0 ? (d.p2_count/max*100) : 0) + '%';
+    }, 50);
+  })
+  .catch(() => { resultsEl.innerHTML = '<span class="search-zero">Erro na busca.</span>'; });
+}
+
+// Allow Enter key in search input
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('search-input').addEventListener('keydown', e => {
+    if (e.key === 'Enter') doSearch();
+  });
+});
 </script>
 </body>
 </html>
