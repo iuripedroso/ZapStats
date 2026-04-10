@@ -38,12 +38,3 @@ Acesse: http://localhost:5000
 
 ---
 
-## Estrutura do projeto
-
-```
-zapstats/
-├── app.py           # Servidor Flask + análise
-├── requirements.txt
-└── templates/
-    └── index.html   # Interface web
-```
