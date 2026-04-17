@@ -9,8 +9,7 @@ from datetime import datetime, timedelta
 app = Flask(__name__)
 app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
 
-# Stored messages in memory for word search (keyed by session via a simple global)
-# For single-user local use this is fine
+
 _last_messages = {'p1': None, 'p2': None, 'msgs': []}
 
 PATTERNS = [
