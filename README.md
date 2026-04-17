@@ -30,11 +30,12 @@ Acesse: http://localhost:5000
 
 ## O que o ZapStats analisa
 
-- 📊 Quem mandou mais mensagens (com barra de comparação)
-- 💬 Top 5 palavras mais usadas por cada pessoa
-- 🎭 Quantidade de figurinhas enviadas por cada um
-- 🔥 Maior sequência de dias conversando (streak)
-- 📅 Total de dias, mensagens e sequências distintas
+-  Quem mandou mais mensagens (com barra de comparação)
+-  Top 5 palavras mais usadas por cada pessoa
+-  Quantidade de figurinhas enviadas por cada um
+-  Maior sequência de dias conversando (streak)
+-  Total de dias, mensagens e sequências distintas
+
 
 ---
 
